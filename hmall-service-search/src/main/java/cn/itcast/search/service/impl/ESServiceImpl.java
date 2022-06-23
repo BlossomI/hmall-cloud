@@ -3,7 +3,6 @@ package cn.itcast.search.service.impl;
 import cn.itcast.feign.client.ItemClient;
 import cn.itcast.hmall.dto.common.PageDTO;
 import cn.itcast.hmall.dto.common.ResultDTO;
-import cn.itcast.hmall.dto.item.SearchItemDTO;
 import cn.itcast.hmall.dto.search.SearchReqDTO;
 import cn.itcast.hmall.pojo.item.Item;
 import cn.itcast.hmall.pojo.item.ItemDoc;
@@ -11,11 +10,11 @@ import cn.itcast.hmall.pojo.req.PageReq;
 import cn.itcast.search.service.ESService;
 import com.alibaba.fastjson.JSON;
 import com.google.common.collect.Lists;
+import com.sun.istack.internal.NotNull;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
-import org.apache.lucene.util.QueryBuilder;
 import org.elasticsearch.action.bulk.BulkRequest;
-import org.elasticsearch.action.bulk.BulkResponse;
+import org.elasticsearch.action.delete.DeleteRequest;
 import org.elasticsearch.action.index.IndexRequest;
 import org.elasticsearch.action.search.SearchRequest;
 import org.elasticsearch.action.search.SearchResponse;
@@ -24,7 +23,8 @@ import org.elasticsearch.client.RestHighLevelClient;
 import org.elasticsearch.common.xcontent.XContentType;
 import org.elasticsearch.index.query.BoolQueryBuilder;
 import org.elasticsearch.index.query.QueryBuilders;
-import org.elasticsearch.search.aggregations.AggregationBuilder;
+import org.elasticsearch.search.SearchHit;
+import org.elasticsearch.search.SearchHits;
 import org.elasticsearch.search.aggregations.AggregationBuilders;
 import org.elasticsearch.search.aggregations.Aggregations;
 import org.elasticsearch.search.aggregations.bucket.terms.Terms;
@@ -33,7 +33,6 @@ import org.elasticsearch.search.suggest.Suggest;
 import org.elasticsearch.search.suggest.SuggestBuilder;
 import org.elasticsearch.search.suggest.SuggestBuilders;
 import org.elasticsearch.search.suggest.completion.CompletionSuggestion;
-import org.jetbrains.annotations.NotNull;
 import org.springframework.stereotype.Service;
 
 import javax.annotation.Resource;
@@ -62,8 +61,8 @@ public class ESServiceImpl implements ESService {
 
         PageDTO<Item> pageDTO = itemClient.pageQuery(pageReq);
 
-
         List<Item> itemList = pageDTO.getList();
+
         Lists.partition(itemList, 1000).forEach(list -> {
 
             BulkRequest bulkRequest = new BulkRequest();
@@ -91,7 +90,6 @@ public class ESServiceImpl implements ESService {
 
             }
         });
-
         return ResultDTO.ok();
     }
 
@@ -182,46 +180,89 @@ public class ESServiceImpl implements ESService {
 
         } catch (IOException e) {
             throw new RuntimeException(e);
+        }
+    }
 
+    @Override
+    public PageDTO<ItemDoc> basicQuery(SearchReqDTO searchReqDTO) {
+        try {
+
+            // extract page and pageSize
+            Integer page = searchReqDTO.getPage();
+            Integer size = searchReqDTO.getSize();
+
+            SearchRequest request = new SearchRequest("item");
+
+            // set basic parameters and sort
+            buildBasicQuery(searchReqDTO, request);
+
+            // set page search
+            request.source().from((page - 1) * size).size(size);
+
+            // send request
+            SearchResponse response = client.search(request, RequestOptions.DEFAULT);
+
+            log.info("response status: {}", response.status());
+
+            List<ItemDoc> itemDocs = handleResponse(response);
+
+            PageDTO<ItemDoc> pageDTO = new PageDTO<>();
+
+            pageDTO.setList(itemDocs);
+
+            pageDTO.setTotal(response.getHits().getTotalHits().value);
+
+            return pageDTO;
+
+        } catch (IOException e) {
+            throw new RuntimeException(e);
         }
     }
 
     /**
-     * get aggregation result
+     * RabbitMQ message receiver
+     * insert Doc into elasticSearch
      *
-     * @param aggregations 总聚合结果集和
-     * @param aggName      聚合项名称
-     * @return 聚合结果列表
+     * @param id item id
      */
-    private List<String> getAggByName(@NotNull Aggregations aggregations, String aggName) {
-        // 4.1.根据聚合名称获取聚合结果
-        Terms brandTerms = aggregations.get(aggName);
-        // 4.2.获取buckets
-        List<? extends Terms.Bucket> buckets = brandTerms.getBuckets();
-        // 4.3.遍历
-        List<String> brandList = new ArrayList<>();
-        for (Terms.Bucket bucket : buckets) {
-            // 4.4.获取key
-            String key = bucket.getKeyAsString();
-            brandList.add(key);
+    @Override
+    public void insertById(Long id) {
+        try {
+            // invoke feign API to query mysql
+            Item item = itemClient.queryById(id);
+
+            // convert to Doc
+            ItemDoc itemDoc = new ItemDoc(item);
+
+            // prepare Request
+            IndexRequest request = new IndexRequest("item").id(item.getId().toString());
+
+            //  prepare Json doc
+            request.source(JSON.toJSONString(itemDoc), XContentType.JSON);
+
+            // send request
+            client.index(request, RequestOptions.DEFAULT);
+        } catch (IOException e) {
+            throw new RuntimeException(e);
         }
-        return brandList;
+
     }
 
     /**
-     * build Aggregation param
+     * RabbitMQ message receiver
      *
-     * @param request SearchRequest object
+     * @param id item id
      */
-    private void buildAggregation(SearchRequest request) {
-        request.source().aggregation(AggregationBuilders
-                .terms("brandAgg")
-                .field("brand")
-                .size(20));
-        request.source().aggregation(AggregationBuilders
-                .terms("categoryAgg")
-                .field("category")
-                .size(20));
+    @Override
+    public void deleteById(Long id) {
+        try {
+            // 1.准备Request
+            DeleteRequest request = new DeleteRequest("item", id.toString());
+            // 2.发送请求
+            client.delete(request, RequestOptions.DEFAULT);
+        } catch (IOException e) {
+            throw new RuntimeException(e);
+        }
     }
 
     /**
@@ -270,6 +311,66 @@ public class ESServiceImpl implements ESService {
             }
         }
 
+    }
+
+    /**
+     * get aggregation result
+     *
+     * @param aggregations 总聚合结果集和
+     * @param aggName      聚合项名称
+     * @return 聚合结果列表
+     */
+    private List<String> getAggByName(@NotNull Aggregations aggregations, String aggName) {
+        // 4.1.根据聚合名称获取聚合结果
+        Terms brandTerms = aggregations.get(aggName);
+        // 4.2.获取buckets
+        List<? extends Terms.Bucket> buckets = brandTerms.getBuckets();
+        // 4.3.遍历
+        List<String> brandList = new ArrayList<>();
+        for (Terms.Bucket bucket : buckets) {
+            // 4.4.获取key
+            String key = bucket.getKeyAsString();
+            brandList.add(key);
+        }
+        return brandList;
+    }
+
+    /**
+     * build Aggregation param
+     *
+     * @param request SearchRequest object
+     */
+    private void buildAggregation(SearchRequest request) {
+        request.source().aggregation(AggregationBuilders
+                .terms("brandAgg")
+                .field("brand")
+                .size(20));
+        request.source().aggregation(AggregationBuilders
+                .terms("categoryAgg")
+                .field("category")
+                .size(20));
+    }
+
+    private List<ItemDoc> handleResponse(SearchResponse response) {
+        // 4.解析响应
+        SearchHits searchHits = response.getHits();
+        // 4.1.获取总条数
+        long total = searchHits.getTotalHits().value;
+        System.out.println("共搜索到" + total + "条数据");
+        // 4.2.文档数组
+        SearchHit[] hits = searchHits.getHits();
+        // 4.3.遍历
+        List<ItemDoc> itemDocsList = new ArrayList<>();
+        for (SearchHit hit : hits) {
+            // 获取文档source
+            String json = hit.getSourceAsString();
+            // 反序列化
+            ItemDoc itemDoc = JSON.parseObject(json, ItemDoc.class);
+            itemDocsList.add(itemDoc);
+
+        }
+
+        return itemDocsList;
     }
 
 

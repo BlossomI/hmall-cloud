@@ -1,7 +1,9 @@
 package cn.itcast.search.controller;
 
+import cn.itcast.hmall.dto.common.PageDTO;
 import cn.itcast.hmall.dto.common.ResultDTO;
 import cn.itcast.hmall.dto.search.SearchReqDTO;
+import cn.itcast.hmall.pojo.item.ItemDoc;
 import cn.itcast.search.service.ESService;
 import org.springframework.web.bind.annotation.*;
 
@@ -32,8 +34,19 @@ public class ESController {
         return esService.getSuggestions(key);
     }
 
+    /**
+     * 聚合条件展示
+     *
+     * @param searchReqDTO 请求参数
+     * @return Map集合
+     */
     @PostMapping("/filters")
-    public Map<String, List<String>> filterSearchResults(@RequestBody SearchReqDTO searchReqDTO){
-       return esService.getFilterSearchResults(searchReqDTO);
+    public Map<String, List<String>> filterSearchResults(@RequestBody SearchReqDTO searchReqDTO) {
+        return esService.getFilterSearchResults(searchReqDTO);
+    }
+
+    @PostMapping("/list")
+    public PageDTO<ItemDoc> basicQueryPage(@RequestBody SearchReqDTO searchReqDTO){
+        return esService.basicQuery(searchReqDTO);
     }
 }

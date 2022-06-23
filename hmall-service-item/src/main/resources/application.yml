@@ -11,12 +11,14 @@ spring:
   cloud:
     nacos:
       server-addr: localhost:8848
+  # Rabbit MQ
   rabbitmq:
     host: localhost
     port: 5672
     virtual-host: /
     username: itcast
     password: 123321
+
 mybatis-plus:
   type-aliases-package: com.hmall.item.pojo
   configuration:

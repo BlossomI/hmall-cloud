@@ -1,7 +1,9 @@
 package cn.itcast.search.service;
 
+import cn.itcast.hmall.dto.common.PageDTO;
 import cn.itcast.hmall.dto.common.ResultDTO;
 import cn.itcast.hmall.dto.search.SearchReqDTO;
+import cn.itcast.hmall.pojo.item.ItemDoc;
 
 import java.util.List;
 import java.util.Map;
@@ -28,4 +30,20 @@ public interface ESService {
      * @return
      */
     Map<String, List<String>> getFilterSearchResults(SearchReqDTO searchReqDTO);
+
+    PageDTO<ItemDoc> basicQuery(SearchReqDTO searchReqDTO);
+
+    /**
+     * RabbitMQ message receiver
+     *
+     * @param id item id
+     */
+    void deleteById(Long id);
+
+    /**
+     * RabbitMQ message receiver
+     *
+     * @param id item id
+     */
+    void insertById(Long id);
 }
