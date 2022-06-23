@@ -1,9 +1,52 @@
 server:
   port: 10010
+
 spring:
   application:
     name: gateway
   cloud:
     nacos:
-      server-addr: 192.168.200.130:8848
+      server-addr: localhost:8848
 # 网关相关配置 需要自己补全哦
+    gateway:
+      routes:
+        # 商品微服务
+        - id: item
+          uri: lb://itemservice
+          predicates:
+            - Path=/item/**
+        # 用户微服务
+        - id: user
+          uri: lb://userservice
+          predicates:
+            - Path=/user/**,/address/**
+        # 订单微服务
+        - id: order
+          uri: lb://orderservice
+          predicates:
+            - Path=/order/**,/pay/**
+        # 搜索微服务
+        - id: search
+          uri: lb://searchservice
+          predicates:
+            - Path=/search/**
+
+      # 全局跨域配置
+      globalcors:
+        add-to-simple-url-handler-mapping: true
+        corsconfigurations:
+          '[/**]':
+            allowedOrigins:
+              - "http://localhost:9001"
+              - "http://localhost:9002"
+              - "http://127.0.0.1:9001"
+              - "http://127.0.0.1:9002"
+            allowedMethods: # 允许的跨域ajax的请求方式
+              - "GET"
+              - "POST"
+              - "DELETE"
+              - "PUT"
+              - "OPTIONS"
+            allowedHeaders: "*" # 允许在请求中携带的头信息
+            allowCredentials: true # 是否允许携带cookie
+            maxAge: 360000 # 这次跨域检测的有效期

@@ -5,18 +5,24 @@ spring:
     name: searchservice
   cloud:
     nacos:
-      server-addr: 192.168.200.130:8848
+      server-addr: localhost:8848
   rabbitmq:
-    host: 192.168.200.130
+    host: localhost
     port: 5672
     virtual-host: /
     username: itcast
     password: 123321
+
 logging:
   level:
     cn.itcast.feign.client: debug
   pattern:
     dateformat: HH:mm:ss:SSS
+
 elasticsearch:
-  host: 192.168.200.130
+  host: localhost
   port: 9200
+
+ribbon:
+  ReadTimeout: 60000
+  ConnectTimeout: 60000
